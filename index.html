@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<title>STL Splitter</title>
+<meta name="description" content="Split 3D-print models into numbered, jointed parts that fit your printer bed. Works offline.">
+<meta name="theme-color" content="#15181d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="STL Splitter">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="styles.css">
+<script type="importmap">{"imports":{"three":"./vendor/three/three.module.js","three/addons/":"./vendor/three/addons/"}}</script>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><img src="icons/icon-192.png" alt=""><input id="projName" value="Untitled project" aria-label="Project name"></div>
+  <div class="topbtns"><span id="saveState" class="muted small"></span></div>
+</header>
+
+<section id="viewerWrap">
+  <div id="viewer"></div>
+  <div class="vtools">
+    <button id="vFrame" title="Fit view">⤢</button>
+    <button id="vExplode" title="Exploded view">✳︎</button>
+    <button id="vMove" title="Move cut plane" class="cutonly">↕︎</button>
+    <button id="vRotate" title="Rotate cut plane" class="cutonly">⟳</button>
+    <button id="vBed" title="Show bed">▦</button>
+  </div>
+  <div id="vInfo" class="vinfo"></div>
+</section>
+
+<main id="panels">
+  <!-- MODEL -->
+  <section class="tab" id="tab-model">
+    <div class="card">
+      <h2>1 · Import model</h2>
+      <p class="muted">STL (binary or ASCII), OBJ or 3MF. Everything stays on this device.</p>
+      <label class="btn primary file">Choose file…<input type="file" id="fileIn"></label>
+      <div class="row wrap gap">
+        <button class="btn" id="sampleBar">Sample: 300 mm bar</button>
+        <button class="btn" id="sampleTwo">Sample: two bodies</button>
+      </div>
+    </div>
+    <div class="card" id="modelInfoCard" hidden>
+      <h2>Model</h2>
+      <div id="modelInfo"></div>
+      <div class="row gap">
+        <label class="grow">Scale %<input type="number" id="scalePct" value="100" min="1" max="10000" step="1"></label>
+        <button class="btn" id="inch">× 25.4 (inches→mm)</button>
+      </div>
+    </div>
+    <div class="card" id="repairCard" hidden>
+      <h2>Mesh repair report</h2>
+      <div id="repairInfo"></div>
+    </div>
+  </section>
+
+  <!-- SPLIT -->
+  <section class="tab" id="tab-split" hidden>
+    <div class="card">
+      <h2>2 · Split</h2>
+      <p class="muted" id="splitIntro">Separate bodies are detected automatically. Add cut planes to split a connected model.</p>
+      <div class="row wrap gap">
+        <button class="btn" id="suggestBtn">Suggest split points</button>
+        <button class="btn" id="autoFitBtn">Auto-cut to fit bed</button>
+        <button class="btn" id="addCutBtn">+ Add cut</button>
+      </div>
+      <div id="suggestions"></div>
+    </div>
+    <div id="cutList"></div>
+    <div class="card">
+      <h2>Joints & numbering</h2>
+      <div class="row gap">
+        <label class="grow">Clearance (mm) <span id="clrVal" class="pill"></span>
+          <input type="range" id="clearance" min="0" max="0.8" step="0.01" value="0.18"></label>
+      </div>
+      <p class="muted small" id="clrNote"></p>
+      <div class="row gap wrap">
+        <label class="grow">Part number<select id="numMode"><option value="deboss">Debossed (engraved)</option><option value="emboss">Embossed (raised)</option><option value="none">Filename only</option></select></label>
+        <label class="grow">On face<select id="numFace"><option value="cut">Cut face</option><option value="top">Top</option><option value="bottom">Bottom</option></select></label>
+        <label class="w80">Depth<input type="number" id="numDepth" value="0.6" step="0.1" min="0.2" max="3"></label>
+      </div>
+      <button class="btn primary big" id="applyBtn">Apply split</button>
+      <div id="splitLog" class="log"></div>
+    </div>
+    <div class="card" id="partsCard" hidden>
+      <h2>Parts <span id="partCount" class="pill"></span></h2>
+      <div id="partsList"></div>
+    </div>
+    <div class="card">
+      <h2>Version history</h2>
+      <div id="versions"><p class="muted">Each applied split is saved here.</p></div>
+    </div>
+  </section>
+
+  <!-- FILAMENT -->
+  <section class="tab" id="tab-filament" hidden>
+    <div class="card">
+      <h2>3 · Filament & cost</h2>
+      <div class="row gap wrap">
+        <label class="grow">Default filament<select id="defFil"></select></label>
+        <label class="grow">Mode<select id="amsMode"><option value="ams">AMS / multi-colour (one 3MF)</option><option value="single">Single extruder (files per colour)</option></select></label>
+      </div>
+      <div class="row gap wrap">
+        <label class="w80">Layer<input type="number" id="psLayer" value="0.2" step="0.04" min="0.08" max="0.32"></label>
+        <label class="w80">Walls<input type="number" id="psWalls" value="2" step="1" min="1" max="10"></label>
+        <label class="w80">Infill %<input type="number" id="psInfill" value="15" step="5" min="0" max="100"></label>
+      </div>
+      <div id="costTable"></div>
+      <p class="muted small">Weight, cost and time are <b>estimates</b> from volume and surface area (no slicing). Use your slicer for exact numbers.</p>
+    </div>
+    <div class="card">
+      <h2>Filament list <span class="muted small">(prices in AUD/kg — editable defaults, not verified)</span></h2>
+      <div id="filList"></div>
+      <button class="btn" id="addFil">+ Add filament</button>
+    </div>
+  </section>
+
+  <!-- PLATES -->
+  <section class="tab" id="tab-plates" hidden>
+    <div class="card">
+      <h2>4 · Printer & plates</h2>
+      <div class="row gap wrap">
+        <label class="grow">Printer<select id="printer"></select></label>
+        <label class="grow">Orientation<select id="packMode"><option value="flat">Largest flat face down</option><option value="cut">Cut face down (if flat)</option><option value="asis">As modelled</option></select></label>
+      </div>
+      <div class="row gap" id="customBed" hidden>
+        <label>X<input type="number" id="bedX" value="200"></label><label>Y<input type="number" id="bedY" value="200"></label><label>Z<input type="number" id="bedZ" value="200"></label>
+      </div>
+      <div class="row gap"><label class="w80">Spacing<input type="number" id="spacing" value="5" min="1" max="30"></label>
+      <button class="btn primary grow" id="packBtn">Pack parts onto plates</button></div>
+      <div id="oversize"></div>
+      <div id="plates"></div>
+    </div>
+  </section>
+
+  <!-- EXPORT -->
+  <section class="tab" id="tab-export" hidden>
+    <div class="card">
+      <h2>5 · Check filament before export</h2>
+      <div id="filCheck"></div>
+      <label class="row gap check"><input type="checkbox" id="filConfirm"> Filament, clearance and colours are correct</label>
+    </div>
+    <div class="card">
+      <h2>Export</h2>
+      <div class="row gap wrap">
+        <label class="grow">Format<select id="fmt"><option value="stl">STL per part</option><option value="3mf">3MF per part</option></select></label>
+        <label class="grow">Orientation<select id="expOrient"><option value="packed">Print-ready (flat on bed)</option><option value="original">Original position</option></select></label>
+      </div>
+      <div class="col gap">
+        <button class="btn primary big" id="zipAll">Zip of all parts</button>
+        <button class="btn" id="platesOut">Multi-colour 3MF per plate (AMS)</button>
+        <button class="btn" id="byColour">Zip grouped by colour (single extruder)</button>
+      </div>
+      <div id="exportReady"></div>
+      <h3>Individual parts</h3>
+      <div id="exportList"></div>
+    </div>
+  </section>
+
+  <!-- LIBRARY -->
+  <section class="tab" id="tab-library" hidden>
+    <div class="card">
+      <h2>This project</h2>
+      <div class="row gap wrap">
+        <button class="btn primary" id="saveProj">Save now</button>
+        <button class="btn" id="newProj">New project</button>
+      </div>
+      <label>Notes<textarea id="projNotes" rows="3" placeholder="Print notes, what worked, what to change…"></textarea></label>
+      <h3>Photos of finished prints</h3>
+      <label class="btn file">📷 Add photo<input type="file" id="photoIn" accept="image/*" multiple></label>
+      <div id="photos" class="photos"></div>
+    </div>
+    <div class="card">
+      <h2>Library</h2>
+      <div id="library"></div>
+    </div>
+  </section>
+</main>
+
+<nav class="tabs">
+  <button data-tab="model" class="on"><span>⬆︎</span>Model</button>
+  <button data-tab="split"><span>✂︎</span>Split</button>
+  <button data-tab="filament"><span>◍</span>Filament</button>
+  <button data-tab="plates"><span>▦</span>Plates</button>
+  <button data-tab="export"><span>⇪</span>Export</button>
+  <button data-tab="library"><span>☰</span>Library</button>
+</nav>
+<div id="busy" hidden><div class="spinner"></div><div id="busyMsg">Working…</div></div>
+<div id="toast" hidden></div>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
